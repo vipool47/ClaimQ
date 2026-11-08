@@ -19,3 +19,4 @@ public record Job(
         Instant updatedAt
 ) {
 }
+

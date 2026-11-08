@@ -55,4 +55,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setTitle("Internal server error");
         return problem;
     }
+
+    @ExceptionHandler(UnknownTaskTypeException.class)
+    public ProblemDetail handleUnknownTaskType(UnknownTaskTypeException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Unknown task type");
+        return problem;
+    }
 }

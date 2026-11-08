@@ -34,3 +34,4 @@ build/
 
 # Environment configuration
 /src/main/resources/application.properties
+/src/main/resources/application-test.properties

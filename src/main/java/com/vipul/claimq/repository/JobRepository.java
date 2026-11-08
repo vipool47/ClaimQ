@@ -2,11 +2,13 @@ package com.vipul.claimq.repository;
 
 import com.vipul.claimq.model.Job;
 import com.vipul.claimq.model.JobStatus;
+import com.vipul.claimq.model.RecoveredJob;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
 public class JobRepository {
@@ -33,6 +35,106 @@ public class JobRepository {
         ORDER BY id DESC
         LIMIT ? OFFSET ?
         """;
+
+    private static final String CLAIM_NEXT_SQL = """
+        UPDATE jobs
+        SET status = 'PROCESSING',
+            attempts = attempts + 1,
+            locked_by = ?,
+            locked_at = now(),
+            claim_token = gen_random_uuid(),
+            updated_at = now()
+        WHERE id = (
+            SELECT id
+            FROM jobs
+            WHERE status = 'PENDING'
+              AND scheduled_at <= now()
+            ORDER BY scheduled_at, id
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+        """;
+
+    public Optional<Job> claimNext(String workerId) {
+        List<Job> jobs = jdbcTemplate.query(CLAIM_NEXT_SQL, rowMapper, workerId);
+        return jobs.stream().findFirst();
+    }
+
+    private static final String COMPLETE_SQL = """
+        UPDATE jobs
+        SET status = 'COMPLETED',
+            locked_by = NULL,
+            locked_at = NULL,
+            claim_token = NULL,
+            updated_at = now()
+        WHERE id = ?
+          AND claim_token = ?
+          AND status = 'PROCESSING'
+        """;
+
+    public boolean complete(long id, UUID claimToken) {
+        return jdbcTemplate.update(COMPLETE_SQL, id, claimToken) == 1;
+    }
+
+    private static final String FAIL_SQL = """
+        UPDATE jobs
+        SET status = CASE
+                WHEN attempts >= max_attempts THEN 'FAILED'
+                ELSE 'PENDING'
+            END,
+            scheduled_at = CASE
+                WHEN attempts >= max_attempts THEN scheduled_at
+                ELSE now() + LEAST(?::bigint * attempts, ?::bigint) * interval '1 millisecond'
+            END,
+            last_error = ?,
+            locked_by = NULL,
+            locked_at = NULL,
+            claim_token = NULL,
+            updated_at = now()
+        WHERE id = ?
+          AND claim_token = ?
+          AND status = 'PROCESSING'
+        RETURNING status
+        """;
+
+    public Optional<JobStatus> fail(long id, UUID claimToken, String error,
+                                    long baseDelayMs, long maxDelayMs) {
+        List<JobStatus> result = jdbcTemplate.query(
+                FAIL_SQL,
+                (rs, rowNum) -> JobStatus.valueOf(rs.getString("status")),
+                baseDelayMs, maxDelayMs, error, id, claimToken);
+        return result.stream().findFirst();
+    }
+
+    private static final String RECOVER_SQL = """
+        UPDATE jobs
+        SET status = CASE
+                WHEN attempts >= max_attempts THEN 'FAILED'
+                ELSE 'PENDING'
+            END,
+            last_error = CASE
+                WHEN attempts >= max_attempts
+                    THEN 'Claim by ' || locked_by || ' expired, attempts exhausted'
+                ELSE 'Claim by ' || locked_by || ' expired'
+            END,
+            locked_by = NULL,
+            locked_at = NULL,
+            claim_token = NULL,
+            updated_at = now()
+        WHERE status = 'PROCESSING'
+          AND locked_at < now() - ?::bigint * interval '1 millisecond'
+        RETURNING id, status
+        """;
+
+    public List<RecoveredJob> recoverExpired(long leaseTimeoutMs) {
+        return jdbcTemplate.query(
+                RECOVER_SQL,
+                (rs, rowNum) -> new RecoveredJob(
+                        rs.getLong("id"),
+                        JobStatus.valueOf(rs.getString("status"))),
+                leaseTimeoutMs);
+    }
 
     private final JdbcTemplate jdbcTemplate;
     private final JobRowMapper rowMapper;
