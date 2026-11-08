@@ -120,8 +120,3 @@ Errors use the standard problem details format: `400` for invalid input or an un
 | `claimq.shutdown.grace-period` | `30s` | How long shutdown waits for running jobs |
 
 
-## Limitations
-
-- Delivery is at-least-once, not exactly-once.
-- There is no heartbeat. A job that runs longer than the lease timeout is reclaimed while still running, so set the lease above the longest expected job.
-- The project has not been load tested.

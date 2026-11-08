@@ -7,5 +7,5 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties(ClaimQProperties.class)
-public class WorkerConfig {
+public class ClaimQConfig {
 }

@@ -14,6 +14,7 @@ public class JobProcessor {
         this.registry = registry;
     }
 
+    // looks up the right handler and calls it
     public void process(Job job) throws Exception {
         JobHandler handler = registry.find(job.taskType())
                 .orElseThrow(() -> new IllegalStateException(
